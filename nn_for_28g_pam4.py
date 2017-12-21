@@ -6,7 +6,7 @@ from torch.utils.data import Dataset, DataLoader
 import torch.optim as optim
 import torch.nn as nn
 import matplotlib.pyplot as plt
-import math
+# import math
 
 # Hyper Parameters
 up_sample_rate = 1
@@ -40,7 +40,8 @@ class RxDataset(Dataset):
 
 
 for i in range(3):
-    rx_file_name = '.\\data_28g_pam4_rand\\' + str(rop) + 'dBm' + str(i) + '.csv'
+    rx_file_name = '.\\data_28g_pam4_rand\\' + str(rop) + 'dBm' + \
+                   str(i) + '.csv'
     tx_file_name = '.\\data_28g_pam4_rand\\pam4_' + str(i) + '.csv'
     if i == 0:
         rx_data = pandas.read_csv(rx_file_name, sep=',', header=None) \

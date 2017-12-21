@@ -8,16 +8,18 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 import time
 
+data_dir = '.\\data\\201720\\112g\\28g_pam16\\20g_pin_edfa\\obtb\\'
+
 
 def main(rop):
     print('Starting time is ' + time.strftime('%Y-%m-%d %H:%M:%S'))
     # Hyper Parameters
-    up_sample_rate = 16
+    up_sample_rate = 20
     batch_size = 512
-    dropout_prob = 0.1
+    dropout_prob = 0
     weight_decay = 0
-    learning_rate = 0.1
-    window = 101
+    learning_rate = 0.003
+    input_window = 101
     epoch_num = 200
 
     # Prepare trainset & testset
@@ -39,68 +41,51 @@ def main(rop):
             tx_symbol = self.tx_data[idx + offset, 0]
             return rx_window, tx_symbol
 
-    seq = torch.randperm(10)
-    for i in seq[0:6]:
-        file_name = '.\\data\\' + str(rop) + 'dBm' + str(i) + '.csv'
+    seq = torch.randperm(5)
+    for i in seq[0:3]:
+        rx_file_name = data_dir + str(rop) + 'dBm' + str(i) + '.csv'
+        tx_file_name = data_dir + 'pam16_' + str(i) + '.csv'
         if i == seq[0]:
-            rx_data = pandas.read_csv(file_name, sep=',', header=None) \
+            rx_data = pandas.read_csv(rx_file_name, sep=',', header=None) \
                             .values[::up_sample_rate]
+            tx_data = pandas.read_csv(tx_file_name, sep=',', header=None) \
+                            .values
         else:
             rx_data = numpy.concatenate(
                 (rx_data,
-                 pandas.read_csv(file_name, sep=',', header=None)
+                 pandas.read_csv(rx_file_name, sep=',', header=None)
                        .values[::up_sample_rate]),
                 axis=0
             )
-    tx_data = pandas.read_csv('.\\data\\prbs15pam16.csv',
-                              sep=',',
-                              header=None) \
-                    .values
-    tx_data = numpy.tile(tx_data, (6, 1))
-    train_dataset = RxDataset(rx_data, tx_data, window=window)
+            tx_data = numpy.concatenate(
+                (tx_data,
+                 pandas.read_csv(tx_file_name, sep=',', header=None)
+                       .values),
+                axis=0
+            )
+    train_dataset = RxDataset(rx_data, tx_data, input_window)
     train_dataloader = DataLoader(train_dataset,
                                   batch_size=batch_size,
                                   shuffle=True)
-    for i in seq[6:8]:
-        file_name = '.\\data\\' + str(rop) + 'dBm' + str(i) + '.csv'
-        if i == seq[6]:
-            rx_data = pandas.read_csv(file_name, sep=',', header=None) \
-                            .values[::up_sample_rate]
-        else:
-            rx_data = numpy.concatenate(
-                (rx_data,
-                 pandas.read_csv(file_name, sep=',', header=None)
-                       .values[::up_sample_rate]),
-                axis=0
-            )
-    tx_data = pandas.read_csv('.\\data\\prbs15pam16.csv',
-                              sep=',',
-                              header=None) \
+
+    rx_file_name = data_dir + str(rop) + 'dBm' + str(seq[3]) + '.csv'
+    tx_file_name = data_dir + 'pam16_' + str(seq[3]) + '.csv'
+    rx_data = pandas.read_csv(rx_file_name, sep=',', header=None) \
+                    .values[::up_sample_rate]
+    tx_data = pandas.read_csv(tx_file_name, sep=',', header=None) \
                     .values
-    tx_data = numpy.tile(tx_data, (2, 1))
-    cv_dataset = RxDataset(rx_data, tx_data, window=window)
+    cv_dataset = RxDataset(rx_data, tx_data, input_window)
     cv_dataloader = DataLoader(cv_dataset,
                                batch_size=batch_size,
                                shuffle=True)
 
-    for i in seq[8:10]:
-        file_name = '.\\data\\' + str(rop) + 'dBm' + str(i) + '.csv'
-        if i == seq[8]:
-            rx_data = pandas.read_csv(file_name, sep=',', header=None) \
-                            .values[::up_sample_rate]
-        else:
-            rx_data = numpy.concatenate(
-                (rx_data,
-                 pandas.read_csv(file_name, sep=',', header=None)
-                       .values[::up_sample_rate]),
-                axis=0
-            )
-    tx_data = pandas.read_csv('.\\data\\prbs15pam16.csv',
-                              sep=',',
-                              header=None) \
+    rx_file_name = data_dir + str(rop) + 'dBm' + str(seq[4]) + '.csv'
+    tx_file_name = data_dir + 'pam16_' + str(seq[4]) + '.csv'
+    rx_data = pandas.read_csv(rx_file_name, sep=',', header=None) \
+                    .values[::up_sample_rate]
+    tx_data = pandas.read_csv(tx_file_name, sep=',', header=None) \
                     .values
-    tx_data = numpy.tile(tx_data, (2, 1))
-    test_dataset = RxDataset(rx_data, tx_data, window=window)
+    test_dataset = RxDataset(rx_data, tx_data, input_window)
     test_dataloader = DataLoader(test_dataset,
                                  batch_size=batch_size,
                                  shuffle=True)
@@ -115,7 +100,7 @@ def main(rop):
             self.conv2 = nn.Conv1d(6, 16, 5)
             self.conv2.double()
             # TODO change the input_channel of fc1 if window is changed
-            self.fc1 = nn.Linear(16 * 93, 600)
+            self.fc1 = nn.Linear(16 * (input_window - 8), 600)
             self.fc1.double()
             self.fc2 = nn.Linear(600, 120)
             self.fc2.double()
@@ -427,7 +412,7 @@ def main(rop):
 
 
 result = []
-rop_list = [2, 1, 0, -1, -2, -3, -4, -6, -7, -8, -9, -10, -11]
+rop_list = [-13]
 for rop in rop_list:
     BER = main(rop)
     result.append(BER)
