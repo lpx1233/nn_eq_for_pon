@@ -7,86 +7,63 @@ import torch.optim as optim
 import torch.nn as nn
 import matplotlib.pyplot as plt
 import time
+import os
 
-data_dir = '.\\data\\201720\\112g\\28g_pam16\\20g_pin_edfa\\obtb\\'
+data_dir = r'.\data\201710\112g\28g_pam16\20g_pin_edfa\obtb'
 
 
 def main(rop):
     print('Starting time is ' + time.strftime('%Y-%m-%d %H:%M:%S'))
     # Hyper Parameters
-    up_sample_rate = 20
-    batch_size = 512
+    batch_size = 256
     dropout_prob = 0
     weight_decay = 0
     learning_rate = 0.003
     input_window = 101
     epoch_num = 200
 
-    # Prepare trainset & testset
+    # Prepare the datasets
     class RxDataset(Dataset):
-        def __init__(self, rx_data, tx_data, window=101):
-            self.rx_data = rx_data
-            self.tx_data = tx_data
-            self.window = window
-            if window % 2 is 0:
-                self.window = 101
-                print('WARNING: the window cannot be even. reset to 101.')
+        def __init__(self, data):
+            self.data = data
 
         def __len__(self):
-            return self.tx_data.shape[0] - self.window + 1
+            return self.data.shape[0]
 
         def __getitem__(self, idx):
-            rx_window = self.rx_data[idx: idx + self.window, 0]
-            offset = int((self.window - 1) / 2)
-            tx_symbol = self.tx_data[idx + offset, 0]
-            return rx_window, tx_symbol
+            return self.data[idx, 1:], self.data[idx, 0].astype(numpy.int64)
 
-    seq = torch.randperm(5)
-    for i in seq[0:3]:
-        rx_file_name = data_dir + str(rop) + 'dBm' + str(i) + '.csv'
-        tx_file_name = data_dir + 'pam16_' + str(i) + '.csv'
-        if i == seq[0]:
-            rx_data = pandas.read_csv(rx_file_name, sep=',', header=None) \
-                            .values[::up_sample_rate]
-            tx_data = pandas.read_csv(tx_file_name, sep=',', header=None) \
-                            .values
-        else:
-            rx_data = numpy.concatenate(
-                (rx_data,
-                 pandas.read_csv(rx_file_name, sep=',', header=None)
-                       .values[::up_sample_rate]),
-                axis=0
-            )
-            tx_data = numpy.concatenate(
-                (tx_data,
-                 pandas.read_csv(tx_file_name, sep=',', header=None)
-                       .values),
-                axis=0
-            )
-    train_dataset = RxDataset(rx_data, tx_data, input_window)
-    train_dataloader = DataLoader(train_dataset,
+    if input_window % 2 == 0:
+        raise ValueError("input_window must be odd")
+
+    dataset_length = 5 * (100000 - input_window + 1)
+    input_data = numpy.empty((dataset_length, input_window))
+    target = numpy.empty((dataset_length, 1))
+    row = 0
+    for i in range(5):
+        rx_file_name = str(rop) + 'dBm' + str(i) + '.csv'
+        rx_file_name = os.path.join(data_dir, rx_file_name)
+        tx_file_name = 'pam16_' + str(i) + '.csv'
+        tx_file_name = os.path.join(data_dir, tx_file_name)
+        raw_rx_data = pandas.read_csv(rx_file_name, header=None).values
+        raw_tx_data = pandas.read_csv(tx_file_name, header=None).values
+        for idx in range(raw_rx_data.shape[0] - input_window + 1):
+            input_data[row, :] = raw_rx_data[idx: idx + input_window].T
+            target[row, :] = raw_tx_data[idx + int((input_window - 1) / 2)]
+            row = row + 1
+    data = numpy.concatenate((target, input_data), axis=1)
+    numpy.random.shuffle(data)
+
+    trainset_index = int(data.shape[0] * 0.6)
+    cvset_index = int(data.shape[0] * 0.8)
+
+    train_dataloader = DataLoader(RxDataset(data[:trainset_index, :]),
                                   batch_size=batch_size,
                                   shuffle=True)
-
-    rx_file_name = data_dir + str(rop) + 'dBm' + str(seq[3]) + '.csv'
-    tx_file_name = data_dir + 'pam16_' + str(seq[3]) + '.csv'
-    rx_data = pandas.read_csv(rx_file_name, sep=',', header=None) \
-                    .values[::up_sample_rate]
-    tx_data = pandas.read_csv(tx_file_name, sep=',', header=None) \
-                    .values
-    cv_dataset = RxDataset(rx_data, tx_data, input_window)
-    cv_dataloader = DataLoader(cv_dataset,
+    cv_dataloader = DataLoader(RxDataset(data[trainset_index:cvset_index, :]),
                                batch_size=batch_size,
                                shuffle=True)
-
-    rx_file_name = data_dir + str(rop) + 'dBm' + str(seq[4]) + '.csv'
-    tx_file_name = data_dir + 'pam16_' + str(seq[4]) + '.csv'
-    rx_data = pandas.read_csv(rx_file_name, sep=',', header=None) \
-                    .values[::up_sample_rate]
-    tx_data = pandas.read_csv(tx_file_name, sep=',', header=None) \
-                    .values
-    test_dataset = RxDataset(rx_data, tx_data, input_window)
-    test_dataloader = DataLoader(test_dataset,
+    test_dataloader = DataLoader(RxDataset(data[cvset_index:, :]),
                                  batch_size=batch_size,
                                  shuffle=True)
 

@@ -7,101 +7,63 @@ import torch.optim as optim
 import torch.nn as nn
 import matplotlib.pyplot as plt
 import time
+import os
+
+data_dir = r'.\data\201710\112g\37g_pam8\20g_pin_edfa\obtb'
 
 
 def main(rop):
     print('Starting time is ' + time.strftime('%Y-%m-%d %H:%M:%S'))
     # Hyper Parameters
-    up_sample_rate = 80
-    batch_size = 512
-    dropout_prob = 0.1
+    batch_size = 256
+    dropout_prob = 0
     weight_decay = 0
-    learning_rate = 0.1
-    window = 101
-    epoch_num = 300
+    learning_rate = 0.003
+    input_window = 101
+    epoch_num = 200
 
-    # Prepare trainset & testset
+    # Prepare the datasets
     class RxDataset(Dataset):
-        def __init__(self, rx_data, tx_data, window=101):
-            self.rx_data = rx_data
-            self.tx_data = tx_data
-            self.window = window
-            if window % 2 is 0:
-                self.window = 101
-                print('WARNING: the window cannot be even. reset to 101.')
+        def __init__(self, data):
+            self.data = data
 
         def __len__(self):
-            return self.tx_data.shape[0] - self.window + 1
+            return self.data.shape[0]
 
         def __getitem__(self, idx):
-            rx_window = self.rx_data[idx: idx + self.window, 0]
-            offset = int((self.window - 1) / 2)
-            tx_symbol = self.tx_data[idx + offset, 0]
-            return rx_window, tx_symbol
+            return self.data[idx, 1:], self.data[idx, 0].astype(numpy.int64)
 
-    seq = torch.randperm(10)
-    for i in seq[0:6]:
-        file_name = '.\\data\\' + str(rop) + 'dBm' + str(i) + '.csv'
-        if i == seq[0]:
-            rx_data = pandas.read_csv(file_name, sep=',', header=None) \
-                            .values[::up_sample_rate]
-        else:
-            rx_data = numpy.concatenate(
-                (rx_data,
-                 pandas.read_csv(file_name, sep=',', header=None)
-                       .values[::up_sample_rate]),
-                axis=0
-            )
-    tx_data = pandas.read_csv('.\\data\\prbs15pam8.csv',
-                              sep=',',
-                              header=None) \
-                    .values
-    tx_data = numpy.tile(tx_data, (6, 1))
-    train_dataset = RxDataset(rx_data, tx_data, window=window)
-    train_dataloader = DataLoader(train_dataset,
+    if input_window % 2 == 0:
+        raise ValueError("input_window must be odd")
+
+    dataset_length = 5 * (100000 - input_window + 1)
+    input_data = numpy.empty((dataset_length, input_window))
+    target = numpy.empty((dataset_length, 1))
+    row = 0
+    for i in range(5):
+        rx_file_name = str(rop) + 'dBm' + str(i) + '.csv'
+        rx_file_name = os.path.join(data_dir, rx_file_name)
+        tx_file_name = 'pam8_' + str(i) + '.csv'
+        tx_file_name = os.path.join(data_dir, tx_file_name)
+        raw_rx_data = pandas.read_csv(rx_file_name, header=None).values
+        raw_tx_data = pandas.read_csv(tx_file_name, header=None).values
+        for idx in range(raw_rx_data.shape[0] - input_window + 1):
+            input_data[row, :] = raw_rx_data[idx: idx + input_window].T
+            target[row, :] = raw_tx_data[idx + int((input_window - 1) / 2)]
+            row = row + 1
+    data = numpy.concatenate((target, input_data), axis=1)
+    numpy.random.shuffle(data)
+
+    trainset_index = int(data.shape[0] * 0.6)
+    cvset_index = int(data.shape[0] * 0.8)
+
+    train_dataloader = DataLoader(RxDataset(data[:trainset_index, :]),
                                   batch_size=batch_size,
                                   shuffle=True)
-    for i in seq[6:8]:
-        file_name = '.\\data\\' + str(rop) + 'dBm' + str(i) + '.csv'
-        if i == seq[6]:
-            rx_data = pandas.read_csv(file_name, sep=',', header=None) \
-                            .values[::up_sample_rate]
-        else:
-            rx_data = numpy.concatenate(
-                (rx_data,
-                 pandas.read_csv(file_name, sep=',', header=None)
-                       .values[::up_sample_rate]),
-                axis=0
-            )
-    tx_data = pandas.read_csv('.\\data\\prbs15pam8.csv',
-                              sep=',',
-                              header=None) \
-                    .values
-    tx_data = numpy.tile(tx_data, (2, 1))
-    cv_dataset = RxDataset(rx_data, tx_data, window=window)
-    cv_dataloader = DataLoader(cv_dataset,
+    cv_dataloader = DataLoader(RxDataset(data[trainset_index:cvset_index, :]),
                                batch_size=batch_size,
                                shuffle=True)
-
-    for i in seq[8:10]:
-        file_name = '.\\data\\' + str(rop) + 'dBm' + str(i) + '.csv'
-        if i == seq[8]:
-            rx_data = pandas.read_csv(file_name, sep=',', header=None) \
-                            .values[::up_sample_rate]
-        else:
-            rx_data = numpy.concatenate(
-                (rx_data,
-                 pandas.read_csv(file_name, sep=',', header=None)
-                       .values[::up_sample_rate]),
-                axis=0
-            )
-    tx_data = pandas.read_csv('.\\data\\prbs15pam8.csv',
-                              sep=',',
-                              header=None) \
-                    .values
-    tx_data = numpy.tile(tx_data, (2, 1))
-    test_dataset = RxDataset(rx_data, tx_data, window=window)
-    test_dataloader = DataLoader(test_dataset,
+    test_dataloader = DataLoader(RxDataset(data[cvset_index:, :]),
                                  batch_size=batch_size,
                                  shuffle=True)
 
@@ -115,7 +77,7 @@ def main(rop):
             self.conv2 = nn.Conv1d(6, 16, 5)
             self.conv2.double()
             # TODO change the input_channel of fc1 if window is changed
-            self.fc1 = nn.Linear(16 * 93, 600)
+            self.fc1 = nn.Linear(16 * (input_window - 8), 600)
             self.fc1.double()
             self.fc2 = nn.Linear(600, 120)
             self.fc2.double()
@@ -300,12 +262,11 @@ def main(rop):
 
 
 result = []
-rop_list = [-3, -5, -7, -9]
+rop_list = [-13]
 for rop in rop_list:
     BER = main(rop)
     result.append(BER)
 
 print()
-print('-9dBm for 25km oband -7dBm')
 print('Final result for ' + str(rop_list) + ' dBm:')
 print(result)

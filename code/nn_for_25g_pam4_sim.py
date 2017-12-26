@@ -1,90 +1,71 @@
 import torch
 import pandas
-import numpy
+# import numpy
 from torch.autograd import Variable
 from torch.utils.data import Dataset, DataLoader
 import torch.optim as optim
 import torch.nn as nn
 import matplotlib.pyplot as plt
+import numpy
+import os
 # import math
 
 # Hyper Parameters
-up_sample_rate = 1
+data_dir = r'.\data\simulated_25g_pam4'
 batch_size = 256
-rop = -13
 dropout_prob = 0
 weight_decay = 0
-learning_rate = 0.001
+learning_rate = 0.003
 epoch_num = 100
 input_window = 101
+p_comp = 65
 
 
 # Prepare the datasets
 class RxDataset(Dataset):
-    def __init__(self, rx_data, tx_data, window=11):
-        self.rx_data = rx_data
-        self.tx_data = tx_data
-        self.window = window
-        if window % 2 is 0:
-            self.window = 11
-            print('WARNING: the window cannot be even. reset to 11.')
+    def __init__(self, input_data, target):
+        self.input_data = input_data
+        self.target = target
 
     def __len__(self):
-        return self.tx_data.shape[0] - self.window + 1
+        return self.input_data.shape[0]
 
     def __getitem__(self, idx):
-        rx_window = self.rx_data[idx: idx + self.window, 0]
-        offset = int((self.window - 1) / 2)
-        tx_symbol = self.tx_data[idx + offset, 0]
-        return rx_window, tx_symbol
+        return self.input_data[idx, :], self.target[idx, 0]
 
 
-for i in range(3):
-    rx_file_name = '.\\data_28g_pam4_rand\\' + str(rop) + 'dBm' + \
-                   str(i) + '.csv'
-    tx_file_name = '.\\data_28g_pam4_rand\\pam4_' + str(i) + '.csv'
-    if i == 0:
-        rx_data = pandas.read_csv(rx_file_name, sep=',', header=None) \
-                        .values[::up_sample_rate]
-        tx_data = pandas.read_csv(tx_file_name, sep=',', header=None) \
-                        .values
-    else:
-        rx_data = numpy.concatenate(
-            (rx_data,
-             pandas.read_csv(rx_file_name, sep=',', header=None)
-                   .values[::up_sample_rate]),
-            axis=0
-        )
-        tx_data = numpy.concatenate(
-            (tx_data,
-             pandas.read_csv(tx_file_name, sep=',', header=None)
-                   .values),
-            axis=0
-        )
-train_dataset = RxDataset(rx_data, tx_data, input_window)
-train_dataloader = DataLoader(train_dataset,
+rx_data = pandas.read_csv(os.path.join(data_dir, 'rx.csv'), header=None).values
+tx_data = pandas.read_csv(os.path.join(data_dir, 'tx.csv'), header=None).values
+
+# Performe PCA
+input_data_raw = numpy.empty((rx_data.shape[0] - input_window + 1,
+                              input_window))
+for idx in range(input_data_raw.shape[0]):
+    input_data_raw[idx, :] = rx_data[idx: idx + input_window, 0].T
+U, S, V = numpy.linalg.svd((1 / input_data_raw.shape[0]) *
+                           input_data_raw.T.dot(input_data_raw))
+input_data = input_data_raw.dot(U[:, 0:p_comp])
+input_data_approx = input_data.dot(U[:, 0:p_comp].T)
+print(1 - ((input_data_raw - input_data_approx) ** 2).sum() /
+      (input_data_raw ** 2).sum())
+
+input_data = input_data_approx
+offset = int((input_window - 1) / 2)
+target = tx_data[offset: input_data.shape[0] + offset]
+
+trainset_index = int(input_data.shape[0] * 0.6)
+cvset_index = int(input_data.shape[0] * 0.8)
+
+train_dataloader = DataLoader(RxDataset(input_data[:trainset_index, :],
+                                        target[:trainset_index, :]),
                               batch_size=batch_size,
                               shuffle=True)
-
-rx_file_name = '.\\data_28g_pam4_rand\\' + str(rop) + 'dBm3.csv'
-tx_file_name = '.\\data_28g_pam4_rand\\pam4_3.csv'
-rx_data = pandas.read_csv(rx_file_name, sep=',', header=None) \
-                .values[::up_sample_rate]
-tx_data = pandas.read_csv(tx_file_name, sep=',', header=None) \
-                .values
-cv_dataset = RxDataset(rx_data, tx_data, input_window)
-cv_dataloader = DataLoader(cv_dataset,
+cv_dataloader = DataLoader(RxDataset(input_data[trainset_index:cvset_index, :],
+                                     target[trainset_index:cvset_index, :]),
                            batch_size=batch_size,
                            shuffle=True)
-
-rx_file_name = '.\\data_28g_pam4_rand\\' + str(rop) + 'dBm4.csv'
-tx_file_name = '.\\data_28g_pam4_rand\\pam4_4.csv'
-rx_data = pandas.read_csv(rx_file_name, sep=',', header=None) \
-                .values[::up_sample_rate]
-tx_data = pandas.read_csv(tx_file_name, sep=',', header=None) \
-                .values
-test_dataset = RxDataset(rx_data, tx_data, input_window)
-test_dataloader = DataLoader(test_dataset,
+test_dataloader = DataLoader(RxDataset(input_data[cvset_index:, :],
+                                       target[cvset_index:, :]),
                              batch_size=batch_size,
                              shuffle=True)
 

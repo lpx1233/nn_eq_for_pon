@@ -1,22 +1,24 @@
 import torch
 import pandas
-# import numpy
+import numpy
 from torch.autograd import Variable
 from torch.utils.data import Dataset, DataLoader
 import torch.optim as optim
 import torch.nn as nn
 import matplotlib.pyplot as plt
-import numpy
+import os
 # import math
 
 # Hyper Parameters
+data_dir = r'..\data\28g_pam4_rand'
+up_sample_rate = 20
 batch_size = 256
+rop = -13
 dropout_prob = 0
 weight_decay = 0
-learning_rate = 0.003
+learning_rate = 0.001
 epoch_num = 100
 input_window = 101
-p_comp = 65
 
 
 # Prepare the datasets
@@ -32,23 +34,28 @@ class RxDataset(Dataset):
         return self.input_data[idx, :], self.target[idx, 0]
 
 
-rx_data = pandas.read_csv('.\\data\\rx.csv', sep=',', header=None).values
-tx_data = pandas.read_csv('.\\data\\tx.csv', sep=',', header=None).values
+# TODO add assert
+if input_window % 2 == 0:
+    raise ValueError("input_window must be odd")
 
-input_data_raw = numpy.empty((rx_data.shape[0] - input_window + 1,
-                              input_window))
-for idx in range(input_data_raw.shape[0]):
-    input_data_raw[idx, :] = rx_data[idx: idx + input_window, 0].T
-U, S, V = numpy.linalg.svd((1 / input_data_raw.shape[0]) *
-                           input_data_raw.T.dot(input_data_raw))
-input_data = input_data_raw.dot(U[:, 0:p_comp])
-input_data_approx = input_data.dot(U[:, 0:p_comp].T)
-print(1 - ((input_data_raw - input_data_approx) ** 2).sum() /
-      (input_data_raw ** 2).sum())
+dataset_length = 5 * (100000 - 101 + 1)
+input_data = numpy.empty((dataset_length, input_window))
+target = numpy.empty((dataset_length, 1))
+for i in range(5):
+    rx_file_name = str(rop) + 'dBm' + str(i) + '.csv'
+    rx_file_name = os.path.join(data_dir, rx_file_name)
+    tx_file_name = 'pam4_' + str(i) + '.csv'
+    tx_file_name = os.path.join(data_dir, tx_file_name)
+    # TODO complete this
+    raw_rx_data = pandas.read_csv(rx_file_name, header=None) \
+                        .values[::up_sample_rate]
+    raw_tx_data = pandas.read_csv(tx_file_name, header=None).values
 
-input_data = input_data_approx
-offset = int((input_window - 1) / 2)
-target = tx_data[offset: input_data.shape[0] + offset]
+    for idx in range(raw_rx_data.shape[0] - input_window + 1):
+        input_data[row, :] = raw_rx_data[idx: idx + input_window].T
+        target[row, :] = raw_rx_data[idx + int((input_window - 1) / 2)]
+print(input_data.shape)
+print(target.shape)
 
 trainset_index = int(input_data.shape[0] * 0.6)
 cvset_index = int(input_data.shape[0] * 0.8)
