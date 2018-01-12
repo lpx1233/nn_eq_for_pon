@@ -10,66 +10,58 @@ import os
 # import math
 
 # Hyper Parameters
-data_dir = r'..\data\28g_pam4_rand'
-up_sample_rate = 20
+data_dir = r'.\data\28g_pam4_filtered'
 batch_size = 256
-rop = -13
+rop = -19
 dropout_prob = 0
 weight_decay = 0
 learning_rate = 0.001
-epoch_num = 100
+epoch_num = 200
 input_window = 101
+dataset_length = 5 * (100000 - input_window + 1)
 
 
 # Prepare the datasets
 class RxDataset(Dataset):
-    def __init__(self, input_data, target):
-        self.input_data = input_data
-        self.target = target
+    def __init__(self, data):
+        self.data = data
 
     def __len__(self):
-        return self.input_data.shape[0]
+        return self.data.shape[0]
 
     def __getitem__(self, idx):
-        return self.input_data[idx, :], self.target[idx, 0]
+        return self.data[idx, 1:], self.data[idx, 0].astype(numpy.int64)
 
 
-# TODO add assert
 if input_window % 2 == 0:
     raise ValueError("input_window must be odd")
 
-dataset_length = 5 * (100000 - 101 + 1)
 input_data = numpy.empty((dataset_length, input_window))
 target = numpy.empty((dataset_length, 1))
+row = 0
 for i in range(5):
     rx_file_name = str(rop) + 'dBm' + str(i) + '.csv'
     rx_file_name = os.path.join(data_dir, rx_file_name)
     tx_file_name = 'pam4_' + str(i) + '.csv'
     tx_file_name = os.path.join(data_dir, tx_file_name)
-    # TODO complete this
-    raw_rx_data = pandas.read_csv(rx_file_name, header=None) \
-                        .values[::up_sample_rate]
+    raw_rx_data = pandas.read_csv(rx_file_name, header=None).values
     raw_tx_data = pandas.read_csv(tx_file_name, header=None).values
-
     for idx in range(raw_rx_data.shape[0] - input_window + 1):
         input_data[row, :] = raw_rx_data[idx: idx + input_window].T
-        target[row, :] = raw_rx_data[idx + int((input_window - 1) / 2)]
-print(input_data.shape)
-print(target.shape)
+        target[row, :] = raw_tx_data[idx + int((input_window - 1) / 2)]
+        row = row + 1
+data = numpy.concatenate((target, input_data), axis=1)
+numpy.random.shuffle(data)
 
-trainset_index = int(input_data.shape[0] * 0.6)
-cvset_index = int(input_data.shape[0] * 0.8)
-
-train_dataloader = DataLoader(RxDataset(input_data[:trainset_index, :],
-                                        target[:trainset_index, :]),
+trainset_index = int(data.shape[0] * 0.6)
+cvset_index = int(data.shape[0] * 0.8)
+train_dataloader = DataLoader(RxDataset(data[:trainset_index, :]),
                               batch_size=batch_size,
                               shuffle=True)
-cv_dataloader = DataLoader(RxDataset(input_data[trainset_index:cvset_index, :],
-                                     target[trainset_index:cvset_index, :]),
+cv_dataloader = DataLoader(RxDataset(data[trainset_index:cvset_index, :]),
                            batch_size=batch_size,
                            shuffle=True)
-test_dataloader = DataLoader(RxDataset(input_data[cvset_index:, :],
-                                       target[cvset_index:, :]),
+test_dataloader = DataLoader(RxDataset(data[cvset_index:, :]),
                              batch_size=batch_size,
                              shuffle=True)
 

@@ -16,9 +16,9 @@ batch_size = 256
 dropout_prob = 0
 weight_decay = 0
 learning_rate = 0.003
-epoch_num = 100
+epoch_num = 200
 input_window = 101
-p_comp = 65
+# p_comp = 65
 
 
 # Prepare the datasets
@@ -38,18 +38,18 @@ rx_data = pandas.read_csv(os.path.join(data_dir, 'rx.csv'), header=None).values
 tx_data = pandas.read_csv(os.path.join(data_dir, 'tx.csv'), header=None).values
 
 # Performe PCA
-input_data_raw = numpy.empty((rx_data.shape[0] - input_window + 1,
-                              input_window))
-for idx in range(input_data_raw.shape[0]):
-    input_data_raw[idx, :] = rx_data[idx: idx + input_window, 0].T
-U, S, V = numpy.linalg.svd((1 / input_data_raw.shape[0]) *
-                           input_data_raw.T.dot(input_data_raw))
-input_data = input_data_raw.dot(U[:, 0:p_comp])
-input_data_approx = input_data.dot(U[:, 0:p_comp].T)
-print(1 - ((input_data_raw - input_data_approx) ** 2).sum() /
-      (input_data_raw ** 2).sum())
+input_data = numpy.empty((rx_data.shape[0] - input_window + 1,
+                          input_window))
+for idx in range(input_data.shape[0]):
+    input_data[idx, :] = rx_data[idx: idx + input_window, 0].T
 
-input_data = input_data_approx
+# U, S, V = numpy.linalg.svd((1 / input_data.shape[0]) *
+#                            input_data.T.dot(input_data))
+# input_data_approx = input_data.dot(U[:, 0:p_comp]).dot(U[:, 0:p_comp].T)
+# print(1 - ((input_data - input_data_approx) ** 2).sum() /
+#       (input_data ** 2).sum())
+# input_data = input_data_approx
+
 offset = int((input_window - 1) / 2)
 target = tx_data[offset: input_data.shape[0] + offset]
 
@@ -75,12 +75,12 @@ test_dataloader = DataLoader(RxDataset(input_data[cvset_index:, :],
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv1d(1, 6, 3)
+        self.conv1 = nn.Conv1d(1, 6, 5)
         self.conv1.double()
-        self.conv2 = nn.Conv1d(6, 16, 3)
+        self.conv2 = nn.Conv1d(6, 16, 5)
         self.conv2.double()
         # TODO change the input_channel of fc1 if window is changed
-        self.fc1 = nn.Linear(16 * (input_window - 4), 120)
+        self.fc1 = nn.Linear(16 * (input_window - 8), 120)
         self.fc1.double()
         self.fc2 = nn.Linear(120, 84)
         self.fc2.double()

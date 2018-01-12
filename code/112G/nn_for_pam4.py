@@ -18,6 +18,7 @@ weight_decay = 0
 learning_rate = 0.003
 epoch_num = 200
 input_window = 101
+dataset_length = 5 * (100000 - input_window + 1)
 
 
 # Prepare the datasets
@@ -35,7 +36,6 @@ class RxDataset(Dataset):
 if input_window % 2 == 0:
     raise ValueError("input_window must be odd")
 
-dataset_length = 5 * (100000 - input_window + 1)
 input_data = numpy.empty((dataset_length, input_window))
 target = numpy.empty((dataset_length, 1))
 row = 0
@@ -55,7 +55,6 @@ numpy.random.shuffle(data)
 
 trainset_index = int(data.shape[0] * 0.6)
 cvset_index = int(data.shape[0] * 0.8)
-
 train_dataloader = DataLoader(RxDataset(data[:trainset_index, :]),
                               batch_size=batch_size,
                               shuffle=True)
