@@ -10,10 +10,10 @@ import os
 # import math
 
 # Hyper Parameters
-data_dir = r'.\data\201801\C-band DML\25G APD\20km'
+data_dir = r'.\data\201801\C-band DML\25G APD\obtb'
 tx_data_dir = r'.\data\201801'
 batch_size = 256
-rop = -17
+rop = -9
 dropout_prob = 0
 weight_decay = 0
 learning_rate = 0.003
@@ -70,55 +70,19 @@ test_dataloader = DataLoader(RxDataset(data[cvset_index:, :]),
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv1d(1, 6, 3)
-        self.conv1.double()
-        self.conv2 = nn.Conv1d(6, 16, 3)
-        self.conv2.double()
-        # TODO change the input_channel of fc1 if window is changed
-        self.fc1 = nn.Linear(16 * (input_window - 4), 120)
+        self.fc1 = nn.Linear(input_window, 1)
         self.fc1.double()
-        self.fc2 = nn.Linear(120, 84)
-        self.fc2.double()
-        self.fc3 = nn.Linear(84, 4)
-        self.fc3.double()
-        self.activation = nn.ReLU()
-        self.dropout = nn.Dropout(p=dropout_prob)
-        # For SELU only
-        # nn.init.normal(list(self.conv1.parameters())[0], std=math.sqrt(1/5))
-        # nn.init.normal(list(self.conv2.parameters())[0], std=math.sqrt(1/5))
-        # nn.init.normal(list(self.fc1.parameters())[0],
-        #                std=math.sqrt(1/(16*(input_window - 4))))
-        # nn.init.normal(list(self.fc2.parameters())[0], std=math.sqrt(1/120))
-        # nn.init.normal(list(self.fc3.parameters())[0], std=math.sqrt(1/84))
 
     def forward(self, x):
         x = x.unsqueeze(1)
-        x = self.activation(self.conv1(x))
-        x = self.dropout(x)
-        x = self.activation(self.conv2(x))
-        x = self.dropout(x)
-        x = x.view(-1, self.num_flat_features(x))
-        x = self.activation(self.fc1(x))
-        x = self.dropout(x)
-        x = self.activation(self.fc2(x))
-        x = self.dropout(x)
-        x = self.fc3(x)
-        x = self.dropout(x)
+        x = self.fc1(x)
         return x
-
-    def num_flat_features(self, x):
-        size = x.size()[1:]  # all dimensions except the batch dimension
-        num_features = 1
-        for s in size:
-            num_features *= s
-        return num_features
 
 
 net = Net()
 net.cuda()
 print(net)
-criterion = nn.CrossEntropyLoss()
-# optimizer = optim.SGD(net.parameters(), lr=0.003)
+criterion = nn.MSELoss()
 optimizer = optim.SGD(net.parameters(),
                       lr=learning_rate,
                       weight_decay=weight_decay)
@@ -136,7 +100,7 @@ for epoch in range(epoch_num):  # loop over the dataset multiple times
         # get the inputs
         rx_window, tx_symbol = data
         rx_window = Variable(rx_window.cuda())
-        tx_symbol = Variable(tx_symbol.cuda())
+        tx_symbol = Variable(tx_symbol.double().cuda())
         # zero the parameter gradients
         optimizer.zero_grad()
         # forward + backward + optimize
@@ -154,14 +118,21 @@ for epoch in range(epoch_num):  # loop over the dataset multiple times
         # get the inputs
         rx_window, tx_symbol = data
         rx_window = Variable(rx_window.cuda())
-        tx_symbol = Variable(tx_symbol.cuda())
+        tx_symbol = Variable(tx_symbol.double().cuda())
         # forward + backward + optimize
         outputs = net(rx_window)
         loss = criterion(outputs, tx_symbol)
         running_loss += loss.data[0]
-        _, predicted = torch.max(outputs.data, 1)
+        # make decision and calc BER
+        outputs.data = outputs.data.cpu().squeeze()
+        predicted = torch.zeros(outputs.data.size()).double()
+        predicted[outputs.data <= 0.5] = 0
+        predicted[(outputs.data <= 1.5) & (outputs.data > 0.5)] = 1
+        predicted[(outputs.data <= 2.5) & (outputs.data > 1.5)] = 2
+        predicted[outputs.data > 2.5] = 3
         total += 2 * batch_size
-        target = tx_symbol.data
+        target = tx_symbol.data.cpu()
+        # import pdb; pdb.set_trace()
         temp = predicted[predicted != target]
         target = target[predicted != target]
         temp = torch.abs(temp - target) % 2
@@ -180,14 +151,20 @@ for epoch in range(epoch_num):  # loop over the dataset multiple times
         # get the inputs
         rx_window, tx_symbol = data
         rx_window = Variable(rx_window.cuda())
-        tx_symbol = Variable(tx_symbol.cuda())
+        tx_symbol = Variable(tx_symbol.double().cuda())
         # forward + backward + optimize
         outputs = net(rx_window)
         loss = criterion(outputs, tx_symbol)
         running_loss += loss.data[0]
-        _, predicted = torch.max(outputs.data, 1)
+        # make decision and calc BER
+        outputs.data = outputs.data.cpu().squeeze()
+        predicted = torch.zeros(outputs.data.size()).double()
+        predicted[outputs.data <= 0.5] = 0
+        predicted[(outputs.data <= 1.5) & (outputs.data > 0.5)] = 1
+        predicted[(outputs.data <= 2.5) & (outputs.data > 1.5)] = 2
+        predicted[outputs.data > 2.5] = 3
         total += 2 * batch_size
-        target = tx_symbol.data
+        target = tx_symbol.data.cpu()
         temp = predicted[predicted != target]
         target = target[predicted != target]
         temp = torch.abs(temp - target) % 2
@@ -199,6 +176,7 @@ for epoch in range(epoch_num):  # loop over the dataset multiple times
           (epoch + 1, cv_loss[-1], cv_ber[-1]))
     print()
 print('Finished Training....')
+
 # Testing
 print('Start Testing....')
 error = 0
@@ -206,11 +184,17 @@ total = 0
 for data in test_dataloader:
     rx_window, tx_symbol = data
     rx_window = Variable(rx_window.cuda())
-    tx_symbol = Variable(tx_symbol.cuda())
+    tx_symbol = Variable(tx_symbol.double().cuda())
     outputs = net(rx_window)
-    _, predicted = torch.max(outputs.data, 1)
+    # make decision and calc BER
+    outputs.data = outputs.data.cpu().squeeze()
+    predicted = torch.zeros(outputs.data.size()).double()
+    predicted[outputs.data <= 0.5] = 0
+    predicted[(outputs.data <= 1.5) & (outputs.data > 0.5)] = 1
+    predicted[(outputs.data <= 2.5) & (outputs.data > 1.5)] = 2
+    predicted[outputs.data > 2.5] = 3
     total += 2 * batch_size
-    target = tx_symbol.data
+    target = tx_symbol.data.cpu()
     temp = predicted[predicted != target]
     target = target[predicted != target]
     temp = torch.abs(temp - target) % 2
@@ -218,6 +202,7 @@ for data in test_dataloader:
     error += temp.sum()
 print('The test BER is %e' % (error / total))
 print('Finished Testing....')
+
 # draw the loss and acc curve
 plt.figure()
 plt.plot(range(len(train_loss)), train_loss, 'r',
