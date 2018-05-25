@@ -10,15 +10,15 @@ import os
 # import math
 
 # Hyper Parameters
-data_dir = r'.\data\201801\C-band DML\25G APD\20km'
+data_dir = r'.\data\201801\O-band DML\40G PD\obtb'
 tx_data_dir = r'.\data\201801'
 batch_size = 256
-rop = -17
+rop = 1
 dropout_prob = 0
 weight_decay = 0
-learning_rate = 0.003
-epoch_num = 100
-input_window = 101
+learning_rate = 0.01
+epoch_num = 1000
+input_window = 9
 dataset_length = 5 * (100000 - input_window + 1)
 
 
